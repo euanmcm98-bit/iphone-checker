@@ -8,6 +8,7 @@ stays in.
 import json
 import os
 import sys
+import time
 
 import requests
 
@@ -22,13 +23,24 @@ POSTCODE = "G1 2JX"                # Search centre (Apple Glasgow, Buchanan Stre
 
 STATE_FILE = "state.json"
 URL = "https://www.apple.com/uk/shop/fulfillment-messages"
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
-        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
-    ),
-    "Accept": "application/json",
-    "Referer": "https://www.apple.com/uk/shop/buy-iphone",
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+)
+PAGE_HEADERS = {
+    "User-Agent": BROWSER_UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9",
+}
+API_HEADERS = {
+    "User-Agent": BROWSER_UA,
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-GB,en;q=0.9",
+    "Referer": "https://www.apple.com/uk/shop/buy-iphone/iphone-duo",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "X-Requested-With": "XMLHttpRequest",
 }
 
 
@@ -57,9 +69,28 @@ def check_apple():
     for i, part in enumerate(PARTS):
         params[f"parts.{i}"] = part
 
-    r = requests.get(URL, params=params, headers=HEADERS, timeout=30)
+    session = requests.Session()
+    # Visit the shop pages first, like a browser would, to pick up Apple's cookies.
+    for page in ("https://www.apple.com/uk/shop/buy-iphone",
+                 "https://www.apple.com/uk/shop/buy-iphone/iphone-duo"):
+        try:
+            p = session.get(page, headers=PAGE_HEADERS, timeout=30)
+            print(f"Visited {page} -> HTTP {p.status_code}")
+        except requests.RequestException as e:
+            print(f"Couldn't load {page}: {e}")
+        time.sleep(2)
+
+    r = None
+    for attempt in range(1, 4):
+        r = session.get(URL, params=params, headers=API_HEADERS, timeout=30)
+        print(f"Availability check attempt {attempt} -> HTTP {r.status_code}")
+        if r.status_code == 200:
+            break
+        time.sleep(5 * attempt)
+
     if r.status_code != 200:
         print(f"Apple returned HTTP {r.status_code}. It may be blocking automated checks.")
+        print("Start of Apple's reply:", r.text[:500])
         sys.exit(1)
 
     stores = r.json().get("body", {}).get("content", {}).get("pickupMessage", {}).get("stores", [])
