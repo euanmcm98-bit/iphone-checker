@@ -7,6 +7,7 @@ stays in.
 """
 import json
 import os
+import re
 import sys
 import time
 
@@ -63,22 +64,50 @@ def notify(message, title="iPhone Duo in stock!"):
     print("Notification sent.")
 
 
-def check_apple():
-    params = {"fae": "true", "pl": "true", "mts.0": "regular",
-              "searchNearby": "true", "location": POSTCODE}
-    for i, part in enumerate(PARTS):
-        params[f"parts.{i}"] = part
+def find_real_parts(page_text):
+    """Read the actual part numbers from Apple's iPhone Duo page and swap in
+    the correct UK versions of the ones in PARTS (matched on the first 5
+    characters, e.g. MK2E4)."""
+    found = sorted(set(re.findall(r"\bMK2[A-Z0-9]{2,4}/A\b", page_text)))
+    print("Part numbers found on Apple's iPhone Duo page:", ", ".join(found) or "none")
+    for url in sorted(set(re.findall(r"[\w/.:-]*fulfillment[\w/.-]*", page_text)))[:5]:
+        print("Fulfilment address mentioned on page:", url)
 
+    active = {}
+    for part, label in PARTS.items():
+        if part in found or not found:
+            active[part] = label
+            continue
+        matches = [f for f in found if f.startswith(part[:5])]
+        if matches:
+            print(f"Using {matches[0]} instead of {part} for {label}")
+            active[matches[0]] = label
+        else:
+            print(f"WARNING: no match on the page for {part} ({label}); trying it anyway.")
+            active[part] = label
+    return active
+
+
+def check_apple():
     session = requests.Session()
+    page_text = ""
     # Visit the shop pages first, like a browser would, to pick up Apple's cookies.
     for page in ("https://www.apple.com/uk/shop/buy-iphone",
                  "https://www.apple.com/uk/shop/buy-iphone/iphone-duo"):
         try:
             p = session.get(page, headers=PAGE_HEADERS, timeout=30)
             print(f"Visited {page} -> HTTP {p.status_code}")
+            page_text = p.text
         except requests.RequestException as e:
             print(f"Couldn't load {page}: {e}")
         time.sleep(2)
+
+    active = find_real_parts(page_text)
+
+    params = {"fae": "true", "pl": "true", "mts.0": "regular",
+              "searchNearby": "true", "location": POSTCODE}
+    for i, part in enumerate(active):
+        params[f"parts.{i}"] = part
 
     r = None
     for attempt in range(1, 4):
@@ -89,8 +118,8 @@ def check_apple():
         time.sleep(5 * attempt)
 
     if r.status_code != 200:
-        print(f"Apple returned HTTP {r.status_code}. It may be blocking automated checks.")
-        print("Start of Apple's reply:", r.text[:500])
+        print(f"Apple returned HTTP {r.status_code}.")
+        print("Address requested:", r.url)
         sys.exit(1)
 
     stores = r.json().get("body", {}).get("content", {}).get("pickupMessage", {}).get("stores", [])
@@ -107,11 +136,10 @@ def check_apple():
         name = store.get("storeName", "")
         if name.lower() not in wanted:
             continue
-        for part, label in PARTS.items():
+        for part, label in active.items():
             info = store.get("partsAvailability", {}).get(part)
             if info is None:
-                print(f"WARNING: Apple didn't recognise part {part} ({label}) at {name}. "
-                      "The part number may be wrong.")
+                print(f"WARNING: Apple didn't recognise part {part} ({label}) at {name}.")
                 continue
             status = info.get("pickupDisplay", "unknown")
             quote = info.get("pickupSearchQuote", "")
