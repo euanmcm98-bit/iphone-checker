@@ -1,8 +1,9 @@
 """
 Checks Apple UK in-store pickup for the iPhone Duo (Night Sky, 256GB or 512GB)
-at Apple Glasgow and Apple Braehead, and sends an SMS through Twilio when
-stock appears. Only texts when something NEW becomes available, so you
-won't get a text every 5 minutes while stock stays in.
+at Apple Glasgow and Apple Braehead, and sends a free push notification
+to your phone through ntfy when stock appears. Only notifies when something
+NEW becomes available, so you won't be alerted every 5 minutes while stock
+stays in.
 """
 import json
 import os
@@ -31,19 +32,23 @@ HEADERS = {
 }
 
 
-def send_sms(body):
-    sid = os.environ["TWILIO_ACCOUNT_SID"]
-    token = os.environ["TWILIO_AUTH_TOKEN"]
+def notify(message, title="iPhone Duo in stock!"):
+    topic = os.environ["NTFY_TOPIC"].strip()
     r = requests.post(
-        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
-        data={"From": os.environ["TWILIO_FROM"], "To": os.environ["MY_MOBILE"], "Body": body},
-        auth=(sid, token),
+        f"https://ntfy.sh/{topic}",
+        data=message.encode("utf-8"),
+        headers={
+            "Title": title,
+            "Priority": "high",
+            "Tags": "iphone,tada",
+            "Click": "https://www.apple.com/uk/shop/buy-iphone",
+        },
         timeout=30,
     )
     if r.status_code >= 300:
-        print(f"Twilio error {r.status_code}: {r.text}")
+        print(f"ntfy error {r.status_code}: {r.text}")
         sys.exit(1)
-    print("Text message sent.")
+    print("Notification sent.")
 
 
 def check_apple():
@@ -86,8 +91,9 @@ def check_apple():
 
 
 def main():
-    if os.environ.get("TEST_SMS", "").lower() == "true":
-        send_sms("Test: your iPhone Duo stock checker is set up and can text you.")
+    if os.environ.get("TEST_NOTIFY", "").lower() == "true":
+        notify("Your iPhone Duo stock checker is set up and can reach your phone.",
+               title="Test notification")
         return
 
     available = check_apple()
@@ -100,9 +106,8 @@ def main():
 
     new = [item for item in available if item not in previous]
     if new:
-        msg = "iPhone Duo available for pickup:\n" + "\n".join(new) + \
-              "\nBuy now: https://www.apple.com/uk/shop/buy-iphone"
-        send_sms(msg)
+        msg = "Available for pickup:\n" + "\n".join(new) + "\nTap to open the Apple Store."
+        notify(msg)
     else:
         print("Nothing new available.")
 
