@@ -5,8 +5,8 @@ on:
     - cron: "*/5 * * * *"   # every 5 minutes (GitHub may run it a few minutes late)
   workflow_dispatch:
     inputs:
-      test_sms:
-        description: "Just send a test text message"
+      test_notify:
+        description: "Just send a test notification"
         type: boolean
         default: false
 
@@ -30,11 +30,8 @@ jobs:
 
       - name: Check Apple stock
         env:
-          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
-          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
-          TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
-          MY_MOBILE: ${{ secrets.MY_MOBILE }}
-          TEST_SMS: ${{ inputs.test_sms }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          TEST_NOTIFY: ${{ inputs.test_notify }}
         run: python check_stock.py
 
       - name: Remember what was in stock
